@@ -187,7 +187,8 @@ async function init() {
   // Pulse scan output — each channel gets a message tuned to its audience.
   // ARIA: terse label so screen readers don't read a novel on every scan.
   // CaptionBar: same terse label.
-  // Self-voicing: natural sentence with beacon count for players without a screen reader.
+  // Self-voicing: interrupt so the beacon count plays immediately even if the
+  // welcome message is still speaking.
   pulse.onTrigger(() => {
     a11y.announce('Pulse scan', 'polite');
     updateCaption('Pulse scan');
@@ -195,8 +196,44 @@ async function init() {
     speech.speak(
       n === 0 ? 'Pulse scan — nothing detected.'
               : `Pulse scan — ${n} ${n === 1 ? 'beacon' : 'beacons'} nearby.`,
+      { interrupt: true },
     );
   });
+
+  // ── Placeholder scene objects ──────────────────────────────────────────
+  // Stand-in geometry until real .glb assets replace them.
+  // Registered with both a11y (DOM mirror) and spatial (beacon audio) so
+  // the pulse scan has targets to reveal.
+  const _neonMat = (name, r, g, b) => {
+    const m = new BABYLON.StandardMaterial(name, scene);
+    m.emissiveColor = new BABYLON.Color3(r, g, b);
+    return m;
+  };
+
+  const wp1 = BABYLON.MeshBuilder.CreateSphere('waypoint-alpha', { diameter: 0.9 }, scene);
+  wp1.position.set(0, 1.5, 20);
+  wp1.material = _neonMat('wp1Mat', 0.0, 1.0, 0.53);   // #00ff88 green
+  a11y.register(wp1,     { type: NodeType.WAYPOINT, label: 'Waypoint Alpha', priority: 'normal' });
+  spatial.register(wp1,  { type: NodeType.WAYPOINT, label: 'Waypoint Alpha' });
+
+  const wp2 = BABYLON.MeshBuilder.CreateSphere('waypoint-beta', { diameter: 0.9 }, scene);
+  wp2.position.set(-14, 1.5, 14);
+  wp2.material = _neonMat('wp2Mat', 0.0, 1.0, 0.53);
+  a11y.register(wp2,     { type: NodeType.WAYPOINT, label: 'Waypoint Beta', priority: 'normal' });
+  spatial.register(wp2,  { type: NodeType.WAYPOINT, label: 'Waypoint Beta' });
+
+  const barrier = BABYLON.MeshBuilder.CreateBox('obstacle-barrier', { width: 2, height: 2, depth: 0.5 }, scene);
+  barrier.position.set(8, 1, 10);
+  barrier.material = _neonMat('barrierMat', 1.0, 0.27, 0.0);  // #ff4500 orange
+  new BABYLON.PhysicsAggregate(barrier, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
+  a11y.register(barrier,    { type: NodeType.OBSTACLE, label: 'Barrier', priority: 'normal' });
+  spatial.register(barrier, { type: NodeType.OBSTACLE, label: 'Barrier' });
+
+  const vendor = BABYLON.MeshBuilder.CreateCapsule('npc-vendor', { height: 1.8, radius: 0.35 }, scene);
+  vendor.position.set(5, 0.9, 16);
+  vendor.material = _neonMat('vendorMat', 1.0, 0.0, 1.0);   // #ff00ff magenta
+  a11y.register(vendor,    { type: NodeType.NPC, label: 'Street Vendor', priority: 'normal' });
+  spatial.register(vendor, { type: NodeType.NPC, label: 'Street Vendor' });
 
   // ── Asset loader ───────────────────────────────────────────────────────
   // loadMesh wraps SceneLoader.ImportMeshAsync with the already-imported BABYLON,
