@@ -1,0 +1,30 @@
+{
+  "name": "pulse-city",
+  "version": "0.1.0",
+  "description": "Accessible open-world web game — Babylon.js + Svelte + WebGPU",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:ci": "node scripts/fetch-draco.js && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "audit": "python audit.py",
+    "fetch-draco": "node scripts/fetch-draco.js"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^7.0.0",
+    "@babylonjs/havok": "^1.3.13",
+    "@babylonjs/loaders": "^7.0.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "jsdom": "^25.0.0",
+    "vite": "^5.0.0",
+    "vitest": "^2.0.0"
+  }
+}

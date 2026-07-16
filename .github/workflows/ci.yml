@@ -1,0 +1,71 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Allow the deploy job to write the gh-pages branch.
+permissions:
+  contents: write
+
+jobs:
+  # ── Test & Audit ────────────────────────────────────────────────────────────
+  test:
+    name: Test & Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Static accessibility audit
+        run: npm run audit
+
+  # ── Build & Deploy ──────────────────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+
+    env:
+      # GitHub Pages serves project repos at https://<user>.github.io/<repo>/
+      VITE_BASE: /Pulse-city/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch Draco decoder
+        run: npm run fetch-draco
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          # Replace the full gh-pages branch on each deploy for a clean slate.
+          force_orphan: true
+          commit_message: "deploy: ${{ github.sha }}"

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pulse City</title>
+    <link rel="stylesheet" href="/src/styles/global.css" />
+  </head>
+  <body>
+    <!--
+      The Babylon.js canvas receives role="application" so screen readers treat
+      it as an interactive widget rather than a decorative image. Navigation
+      happens through the DOM mirror injected by AccessibilityObserver, not the
+      canvas itself.
+    -->
+    <canvas
+      id="pulse-canvas"
+      role="application"
+      aria-label="Pulse City — 3D game world. Use the Pulse scan (Space) for audio navigation."
+      tabindex="0"
+    ></canvas>
+
+    <!-- Svelte app mounts here — manages HUD, captions, settings overlay -->
+    <div id="app"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vite/
+coverage/
+*.local
+
+# Draco decoder files are fetched during CI by scripts/fetch-draco.js
+public/draco/*.js
+public/draco/*.wasm

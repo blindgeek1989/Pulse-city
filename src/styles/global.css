@@ -1,0 +1,55 @@
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Canvas ──────────────────────────────────────────────────────────────── */
+#pulse-canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+  outline: none;
+}
+
+/* ── Screen-reader-only utility ──────────────────────────────────────────── */
+/*
+  Applied to the AccessibilityObserver container (#pulse-city-a11y).
+  Visually hidden but fully accessible to assistive technology.
+  Never use display:none or visibility:hidden here — those hide from AT too.
+*/
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Focus ring ──────────────────────────────────────────────────────────── */
+/*
+  High-visibility focus ring for keyboard and switch-device users.
+  3px offset keeps the ring outside element bounds for readability.
+*/
+:focus-visible {
+  outline: 3px solid #00f5ff;
+  outline-offset: 3px;
+}
+
+/* ── Svelte app overlay ──────────────────────────────────────────────────── */
+#app {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#app > * {
+  pointer-events: auto;
+}
