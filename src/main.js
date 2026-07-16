@@ -276,8 +276,30 @@ async function init() {
 
   // Look state for camera orbit; WASD + jump forwarded to CharacterController.
   const look = { left: 0, right: 0, up: 0, down: 0 };
+
+  // Track which movement keys are currently held so key-repeat events don't
+  // re-announce the direction every frame while the key is held down.
+  const heldMoveKeys = new Set();
+  const MOVE_CUE = {
+    [GameCommand.MOVE_FORWARD]: 'Forward',
+    [GameCommand.MOVE_BACK]:    'Back',
+    [GameCommand.STRAFE_LEFT]:  'Left',
+    [GameCommand.STRAFE_RIGHT]: 'Right',
+    [GameCommand.JUMP]:         'Jumping',
+    [GameCommand.SPRINT]:       'Sprinting',
+  };
+
   input.onCommand((cmd, val) => {
     cc.onCommand(cmd, val);
+
+    // Brief direction cue on the first press of each movement key.
+    // Not interrupt — queued behind any beacon audio still playing.
+    if (val === 1 && MOVE_CUE[cmd] && !heldMoveKeys.has(cmd)) {
+      speech.speak(MOVE_CUE[cmd]);
+    }
+    if (val === 1) heldMoveKeys.add(cmd);
+    if (val === 0) heldMoveKeys.delete(cmd);
+
     if (cmd === GameCommand.LOOK_LEFT)  look.left  = val;
     if (cmd === GameCommand.LOOK_RIGHT) look.right = val;
     if (cmd === GameCommand.LOOK_UP)    look.up    = val;
@@ -373,9 +395,13 @@ async function init() {
   });
 
   // ── Startup narration ──────────────────────────────────────────────────────
-  // Brief welcome first so the player is oriented within seconds, followed by
-  // the full guide after a short pause to let the intro land before the list.
-  setTimeout(() => {
+  // Chrome gates speechSynthesis.speak() behind a user gesture.  setTimeout
+  // fires before any gesture and fails silently.  Instead we listen for the
+  // first keydown (capture phase, ahead of all game handlers) and speak there,
+  // which satisfies the gesture requirement.  AudioContext is also resumed here
+  // in case it was auto-suspended before the first interaction.
+  window.addEventListener('keydown', function onFirstKey() {
+    audioContext.resume();
     speech.speak(
       'Welcome to Pulse City — an accessible cyberpunk adventure. ' +
       'Self-voicing is on. If you use a screen reader, press Alt V to turn it off. ' +
@@ -384,13 +410,10 @@ async function init() {
       'Press Escape for accessibility settings. ' +
       'Press H at any time to hear the full keyboard guide.',
     );
-  }, 800);
-
-  // Full guide plays 14 seconds after startup, giving the brief intro time
-  // to finish and the player a moment to absorb it before the detail arrives.
-  setTimeout(() => {
-    speech.speak(KEYBOARD_GUIDE);
-  }, 14000);
+    // Queue the full guide behind the welcome.  13 s gives the brief intro
+    // ~10 s to finish with a pause before the detail list begins.
+    setTimeout(() => speech.speak(KEYBOARD_GUIDE), 13000);
+  }, { once: true, capture: true });
 
   // ── Render loop ────────────────────────────────────────────────────────
   engine.runRenderLoop(() => {

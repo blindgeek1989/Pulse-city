@@ -27,10 +27,11 @@ export default defineConfig({
       output: {
         // Split the heavy Babylon.js packages into separate cacheable chunks.
         // The game code and Svelte UI stay in the main entry chunk.
+        // @babylonjs/havok stays in the main chunk — its WASM binary uses a
+        // relative self-reference that breaks when the JS wrapper moves chunks.
         manualChunks: {
           'vendor-babylon-core':    ['@babylonjs/core'],
           'vendor-babylon-loaders': ['@babylonjs/loaders'],
-          'vendor-babylon-havok':   ['@babylonjs/havok'],
         },
       },
     },
