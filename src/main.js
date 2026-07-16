@@ -277,26 +277,67 @@ async function init() {
   // Look state for camera orbit; WASD + jump forwarded to CharacterController.
   const look = { left: 0, right: 0, up: 0, down: 0 };
 
-  // Track which movement keys are currently held so key-repeat events don't
-  // re-announce the direction every frame while the key is held down.
+  // Synthesised movement sounds via Web Audio — no audio files required.
+  function playFootstep() {
+    const t = audioContext.currentTime;
+    // Short filtered noise burst: sounds like a quick mechanical step.
+    const frames = Math.floor(audioContext.sampleRate * 0.07);
+    const buf = audioContext.createBuffer(1, frames, audioContext.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+
+    const src = audioContext.createBufferSource();
+    src.buffer = buf;
+
+    const filter = audioContext.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 180;
+    filter.Q.value = 1.2;
+
+    const gain = audioContext.createGain();
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioContext.destination);
+    src.start(t);
+  }
+
+  function playJump() {
+    const t = audioContext.currentTime;
+    // Rising sine sweep: 180 Hz → 520 Hz over 220 ms — a clear "boost" cue.
+    const osc = audioContext.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.exponentialRampToValueAtTime(520, t + 0.22);
+
+    const gain = audioContext.createGain();
+    gain.gain.setValueAtTime(0.28, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+
+  // Track held movement keys to suppress key-repeat re-triggers.
   const heldMoveKeys = new Set();
-  const MOVE_CUE = {
-    [GameCommand.MOVE_FORWARD]: 'Forward',
-    [GameCommand.MOVE_BACK]:    'Back',
-    [GameCommand.STRAFE_LEFT]:  'Left',
-    [GameCommand.STRAFE_RIGHT]: 'Right',
-    [GameCommand.JUMP]:         'Jumping',
-    [GameCommand.SPRINT]:       'Sprinting',
-  };
+  const MOVE_SOUND_CMDS = new Set([
+    GameCommand.MOVE_FORWARD,
+    GameCommand.MOVE_BACK,
+    GameCommand.STRAFE_LEFT,
+    GameCommand.STRAFE_RIGHT,
+    GameCommand.SPRINT,
+  ]);
 
   input.onCommand((cmd, val) => {
     cc.onCommand(cmd, val);
 
-    // Brief direction cue on the first press of each movement key.
-    // Interrupt so the cue plays immediately — in-game real-time feedback
-    // matters more than finishing any background narration.
-    if (val === 1 && MOVE_CUE[cmd] && !heldMoveKeys.has(cmd)) {
-      speech.speak(MOVE_CUE[cmd], { interrupt: true });
+    if (val === 1 && !heldMoveKeys.has(cmd)) {
+      if (cmd === GameCommand.JUMP)            playJump();
+      else if (MOVE_SOUND_CMDS.has(cmd))       playFootstep();
     }
     if (val === 1) heldMoveKeys.add(cmd);
     if (val === 0) heldMoveKeys.delete(cmd);
