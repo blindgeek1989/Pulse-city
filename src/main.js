@@ -86,9 +86,9 @@ async function init() {
   ground.isPickable = true;
 
   const asphaltMat = new BABYLON.PBRMaterial('asphalt', scene);
-  asphaltMat.albedoColor = new BABYLON.Color3(0.025, 0.025, 0.04);  // near-black tarmac
-  asphaltMat.metallic    = 0.0;
-  asphaltMat.roughness   = 0.85;
+  asphaltMat.albedoColor = new BABYLON.Color3(0.02, 0.02, 0.035);
+  asphaltMat.metallic    = 0.15;   // wet road sheen
+  asphaltMat.roughness   = 0.28;
   ground.material = asphaltMat;
 
   const playerMesh = BABYLON.MeshBuilder.CreateCapsule('player', {
@@ -116,10 +116,61 @@ async function init() {
   playerAggregate.body.setMassProperties({ inertia: BABYLON.Vector3.Zero() });
 
   // ── Neon glow layer ────────────────────────────────────────────────────
-  // Amplifies emissive meshes with a bloom halo — the core of the neon aesthetic.
   const glow = new BABYLON.GlowLayer('neonGlow', scene);
-  glow.intensity      = 1.6;
-  glow.blurKernelSize = 64;
+  glow.intensity      = 2.2;
+  glow.blurKernelSize = 96;
+
+  // ── Night sky dome ─────────────────────────────────────────────────────
+  // Large inside-out sphere textured with a starfield + horizon neon glow.
+  const skyDome = BABYLON.MeshBuilder.CreateSphere('skyDome',
+    { diameter: 900, segments: 8, sideOrientation: BABYLON.Mesh.BACKSIDE }, scene);
+  skyDome.isPickable = false;
+  const skyTex = new BABYLON.DynamicTexture('skyTex', { width: 1024, height: 512 }, scene, false);
+  const skyCtx = skyTex.getContext();
+  // Vertical gradient: near-black zenith → deep purple horizon glow.
+  const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 512);
+  skyGrad.addColorStop(0,    '#00000a');
+  skyGrad.addColorStop(0.55, '#08001c');
+  skyGrad.addColorStop(0.82, '#18003c');
+  skyGrad.addColorStop(1,    '#2e006e');
+  skyCtx.fillStyle = skyGrad;
+  skyCtx.fillRect(0, 0, 1024, 512);
+  // Stars — random white dots concentrated in the upper half.
+  for (let i = 0; i < 350; i++) {
+    const sx = Math.random() * 1024;
+    const sy = Math.random() * 380;
+    const sa = Math.random() * 0.75 + 0.25;
+    const ss = Math.random() < 0.08 ? 2 : 1;
+    skyCtx.fillStyle = `rgba(255,255,255,${sa})`;
+    skyCtx.fillRect(sx, sy, ss, ss);
+  }
+  // Neon city glow band at the horizon.
+  const horizGrad = skyCtx.createLinearGradient(0, 370, 0, 512);
+  horizGrad.addColorStop(0, 'rgba(80,0,180,0)');
+  horizGrad.addColorStop(0.5, 'rgba(100,0,220,0.35)');
+  horizGrad.addColorStop(1, 'rgba(20,0,80,0.6)');
+  skyCtx.fillStyle = horizGrad;
+  skyCtx.fillRect(0, 370, 1024, 142);
+  // Distant cyan glow on one side (city core).
+  skyCtx.fillStyle = 'rgba(0,180,255,0.12)';
+  skyCtx.fillRect(600, 400, 424, 112);
+  // Moon — soft white-cyan orb.
+  skyCtx.beginPath();
+  skyCtx.arc(820, 90, 22, 0, Math.PI * 2);
+  skyCtx.fillStyle = 'rgba(200,230,255,0.9)';
+  skyCtx.fill();
+  skyCtx.beginPath();
+  skyCtx.arc(820, 90, 30, 0, Math.PI * 2);
+  skyCtx.fillStyle = 'rgba(150,200,255,0.15)';
+  skyCtx.fill();
+  skyTex.update();
+  const skyMat = new BABYLON.StandardMaterial('skyMat', scene);
+  skyMat.emissiveTexture = skyTex;
+  skyMat.disableLighting = true;
+  skyMat.backFaceCulling  = false;
+  skyDome.material = skyMat;
+  // Exclude sky dome from the glow layer so it doesn't bloom.
+  glow.addExcludedMesh(skyDome);
 
   // ── Follow camera ──────────────────────────────────────────────────────
   const camera = new BABYLON.ArcRotateCamera(
@@ -206,39 +257,147 @@ async function init() {
   // both the AccessibilityObserver (DOM mirror) and SpatialAudioManager
   // (beacon audio) so the pulse scan can reveal the whole city.
 
-  // PBR building helper — dark concrete with neon emissive accent.
+  // Window-texture helper — draws a glowing grid of lit/unlit office windows.
+  const WIN_COLORS = ['#00ffff','#ff00ff','#aaff22','#ffaa00','#6688ff','#ff5500','#00ffaa'];
+  function _winTex(cols, rows) {
+    const W = 512, H = 1024;
+    const t  = new BABYLON.DynamicTexture('wt_' + Math.random(), { width: W, height: H }, scene, false);
+    const c  = t.getContext();
+    c.fillStyle = '#03030a';
+    c.fillRect(0, 0, W, H);
+    const cw = W / cols, rh = H / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let cl = 0; cl < cols; cl++) {
+        if (Math.random() < 0.72) {
+          c.fillStyle  = WIN_COLORS[Math.floor(Math.random() * WIN_COLORS.length)];
+          c.globalAlpha = Math.random() * 0.5 + 0.5;
+          c.fillRect(cl * cw + 2, r * rh + 2, cw - 4, rh - 4);
+        }
+      }
+    }
+    c.globalAlpha = 1;
+    t.update();
+    return t;
+  }
+
+  // Building helper — dark concrete body + window DynamicTexture emissive.
+  // Returns { mesh, x, z, w, d, h, er, eg, eb } for roof-strip pass below.
+  const _bData = [];
   function _building(id, x, z, w, d, h, er, eg, eb) {
-    const b = BABYLON.MeshBuilder.CreateBox(id, { width: w, height: h, depth: d }, scene);
+    const b   = BABYLON.MeshBuilder.CreateBox(id, { width: w, height: h, depth: d }, scene);
     b.position.set(x, h / 2, z);
     new BABYLON.PhysicsAggregate(b, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
     const mat = new BABYLON.PBRMaterial(id + 'M', scene);
-    mat.albedoColor  = new BABYLON.Color3(0.04, 0.04, 0.06);
-    mat.emissiveColor = new BABYLON.Color3(er, eg, eb);
-    mat.metallic  = 0.4;
-    mat.roughness = 0.7;
+    mat.albedoColor   = new BABYLON.Color3(0.03, 0.03, 0.05);
+    mat.metallic      = 0.35;
+    mat.roughness     = 0.65;
+    // Window grid as emissive texture — picked up by the GlowLayer.
+    const winTex      = _winTex(Math.max(4, Math.round(w * 1.2)), Math.max(8, Math.round(h * 0.9)));
+    mat.emissiveTexture = winTex;
+    mat.emissiveColor   = new BABYLON.Color3(0.9, 0.9, 0.9);
     b.material = mat;
+    _bData.push({ id, x, z, w, d, h, er, eg, eb });
     return b;
   }
 
   // NE block
-  _building('bA1',  18, 25, 8, 10, 28, 0.00, 0.06, 0.20);
-  _building('bA2',  28, 40, 6,  8, 42, 0.10, 0.00, 0.22);
-  _building('bA3',  16, 50, 9,  7, 18, 0.00, 0.12, 0.06);
+  _building('bA1',  18, 25, 8, 10, 28, 0.00, 0.20, 1.00);
+  _building('bA2',  28, 40, 6,  8, 42, 0.60, 0.00, 1.00);
+  _building('bA3',  16, 50, 9,  7, 18, 0.00, 1.00, 0.40);
 
   // NW block
-  _building('bB1', -20, 25, 8, 10, 32, 0.06, 0.00, 0.18);
-  _building('bB2', -30, 38, 7,  9, 24, 0.00, 0.06, 0.12);
-  _building('bB3', -18, 52, 9,  7, 38, 0.12, 0.02, 0.00);
+  _building('bB1', -20, 25, 8, 10, 32, 0.40, 0.00, 1.00);
+  _building('bB2', -30, 38, 7,  9, 24, 0.00, 0.60, 1.00);
+  _building('bB3', -18, 52, 9,  7, 38, 1.00, 0.30, 0.00);
 
   // SE block
-  _building('bC1',  20, -22, 8, 12, 30, 0.00, 0.10, 0.12);
-  _building('bC2',  30, -38, 6,  8, 22, 0.06, 0.00, 0.14);
-  _building('bC3',  18, -50, 9,  9, 40, 0.00, 0.00, 0.24);
+  _building('bC1',  20, -22, 8, 12, 30, 0.00, 1.00, 0.80);
+  _building('bC2',  30, -38, 6,  8, 22, 0.80, 0.00, 0.60);
+  _building('bC3',  18, -50, 9,  9, 40, 0.00, 0.20, 1.00);
 
   // SW block
-  _building('bD1', -22, -22, 9, 10, 34, 0.12, 0.00, 0.12);
-  _building('bD2', -30, -36, 7,  8, 26, 0.00, 0.12, 0.12);
-  _building('bD3', -18, -50, 8, 10, 44, 0.06, 0.02, 0.12);
+  _building('bD1', -22, -22, 9, 10, 34, 1.00, 0.00, 0.60);
+  _building('bD2', -30, -36, 7,  8, 26, 0.00, 1.00, 0.60);
+  _building('bD3', -18, -50, 8, 10, 44, 0.60, 0.20, 1.00);
+
+  // ── Roof neon strips + building-top point lights ───────────────────────
+  for (const { id, x, z, w, d, h, er, eg, eb } of _bData) {
+    const strip = BABYLON.MeshBuilder.CreateBox(id + '_top',
+      { width: w + 0.3, height: 0.4, depth: d + 0.3 }, scene);
+    strip.position.set(x, h + 0.2, z);
+    const sm = new BABYLON.StandardMaterial(id + '_topM', scene);
+    sm.emissiveColor = new BABYLON.Color3(er, eg, eb);
+    strip.material  = sm;
+
+    const pl = new BABYLON.PointLight(id + '_pl', new BABYLON.Vector3(x, h + 1.5, z), scene);
+    pl.diffuse    = new BABYLON.Color3(er * 0.8, eg * 0.8, eb * 0.8);
+    pl.intensity  = 60;
+    pl.range      = 22;
+  }
+
+  // ── Street-level neon signs ────────────────────────────────────────────
+  function _sign(label, x, y, z, ry, r, g, b) {
+    const W = 512, H = 128;
+    const t  = new BABYLON.DynamicTexture('sg_' + label, { width: W, height: H }, scene, false);
+    const c  = t.getContext();
+    c.fillStyle = '#000000';
+    c.fillRect(0, 0, W, H);
+    c.font = 'bold 72px monospace';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = `rgb(${r},${g},${b})`;
+    c.shadowColor = `rgb(${r},${g},${b})`;
+    c.shadowBlur = 18;
+    c.fillText(label, W / 2, H / 2);
+    t.update();
+    const p = BABYLON.MeshBuilder.CreatePlane('sp_' + label, { width: 5, height: 1.25 }, scene);
+    p.position.set(x, y, z);
+    p.rotation.y = ry;
+    const m = new BABYLON.StandardMaterial('sm_' + label, scene);
+    m.emissiveTexture  = t;
+    m.disableLighting  = true;
+    m.backFaceCulling  = false;
+    p.material = m;
+  }
+
+  _sign('CYBERTECH',    13,  8, 20, -Math.PI/2,  0, 255, 255);
+  _sign('NEON RAMEN',  -13,  5, 18,  Math.PI/2, 255,   0, 180);
+  _sign('JACK IN',       0, 12, 22,  Math.PI,     0, 255,  80);
+  _sign('DARK MARKET',  13,  6, -18, -Math.PI/2, 255, 140,   0);
+  _sign('SYNAPSE BAR', -13,  9, -20,  Math.PI/2,  80,  80, 255);
+  _sign('CHROME CLUB',  20,  7,   0,  0,         255,   0, 100);
+
+  // ── Road lane markings ────────────────────────────────────────────────
+  // Dashed emissive strips running down the centre of each road axis.
+  for (let i = -5; i <= 5; i++) {
+    const dashZ = BABYLON.MeshBuilder.CreateBox('lnZ' + i,
+      { width: 0.12, height: 0.01, depth: 2.4 }, scene);
+    dashZ.position.set(0, 0.01, i * 9);
+    const lmZ = new BABYLON.StandardMaterial('lnZm' + i, scene);
+    lmZ.emissiveColor = new BABYLON.Color3(0.8, 0.6, 0.0);
+    dashZ.material = lmZ;
+
+    const dashX = BABYLON.MeshBuilder.CreateBox('lnX' + i,
+      { width: 2.4, height: 0.01, depth: 0.12 }, scene);
+    dashX.position.set(i * 9, 0.01, 0);
+    const lmX = new BABYLON.StandardMaterial('lnXm' + i, scene);
+    lmX.emissiveColor = new BABYLON.Color3(0.8, 0.6, 0.0);
+    dashX.material = lmX;
+  }
+
+  // ── Street-level coloured point lights ───────────────────────────────
+  const _streetLights = [
+    [  6, 4,  6, 0.0, 0.6, 1.0],  [-6, 4,  6, 1.0, 0.0, 0.6],
+    [  6, 4, -6, 0.0, 1.0, 0.5],  [-6, 4, -6, 0.8, 0.3, 0.0],
+    [  0, 4, 12, 0.5, 0.0, 1.0],  [ 0, 4,-12, 0.0, 0.8, 1.0],
+    [ 12, 4,  0, 1.0, 0.5, 0.0],  [-12, 4,  0, 0.2, 0.0, 1.0],
+  ];
+  for (const [i, [px, py, pz, r, g, b]] of _streetLights.entries()) {
+    const sl = new BABYLON.PointLight('sl' + i, new BABYLON.Vector3(px, py, pz), scene);
+    sl.diffuse   = new BABYLON.Color3(r, g, b);
+    sl.intensity = 45;
+    sl.range     = 18;
+  }
 
   // Neon street barricade (obstacle) at the north cross-road
   const barricade = BABYLON.MeshBuilder.CreateBox('barricade', { width: 3, height: 1.2, depth: 0.4 }, scene);
