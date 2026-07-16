@@ -293,9 +293,10 @@ async function init() {
     cc.onCommand(cmd, val);
 
     // Brief direction cue on the first press of each movement key.
-    // Not interrupt — queued behind any beacon audio still playing.
+    // Interrupt so the cue plays immediately — in-game real-time feedback
+    // matters more than finishing any background narration.
     if (val === 1 && MOVE_CUE[cmd] && !heldMoveKeys.has(cmd)) {
-      speech.speak(MOVE_CUE[cmd]);
+      speech.speak(MOVE_CUE[cmd], { interrupt: true });
     }
     if (val === 1) heldMoveKeys.add(cmd);
     if (val === 0) heldMoveKeys.delete(cmd);
@@ -403,16 +404,13 @@ async function init() {
   window.addEventListener('keydown', function onFirstKey() {
     audioContext.resume();
     speech.speak(
-      'Welcome to Pulse City — an accessible cyberpunk adventure. ' +
-      'Self-voicing is on. If you use a screen reader, press Alt V to turn it off. ' +
-      'Press Tab to fire your Pulse Scan and hear what is around you. ' +
-      'W A S D or arrow keys to move. Space to jump. F to interact. ' +
-      'Press Escape for accessibility settings. ' +
-      'Press H at any time to hear the full keyboard guide.',
+      'Welcome to Pulse City. ' +
+      'Press Tab to pulse scan and hear what surrounds you. ' +
+      'W A S D to move. Space to jump. F to interact. ' +
+      'Screen reader users can now turn off their screen reader. ' +
+      'To turn off self-voicing, press Alt V. ' +
+      'Press H for the full keyboard guide.',
     );
-    // Queue the full guide behind the welcome.  13 s gives the brief intro
-    // ~10 s to finish with a pause before the detail list begins.
-    setTimeout(() => speech.speak(KEYBOARD_GUIDE), 13000);
   }, { once: true, capture: true });
 
   // ── Render loop ────────────────────────────────────────────────────────
