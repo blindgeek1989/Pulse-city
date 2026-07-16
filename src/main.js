@@ -200,40 +200,213 @@ async function init() {
     );
   });
 
-  // ── Placeholder scene objects ──────────────────────────────────────────
-  // Stand-in geometry until real .glb assets replace them.
-  // Registered with both a11y (DOM mirror) and spatial (beacon audio) so
-  // the pulse scan has targets to reveal.
-  const _neonMat = (name, r, g, b) => {
-    const m = new BABYLON.StandardMaterial(name, scene);
-    m.emissiveColor = new BABYLON.Color3(r, g, b);
-    return m;
-  };
+  // ── Downtown city ──────────────────────────────────────────────────────
+  // Procedural geometry: buildings, NPCs, and vehicles populate the scene
+  // until real .glb assets replace them.  Every entity is registered with
+  // both the AccessibilityObserver (DOM mirror) and SpatialAudioManager
+  // (beacon audio) so the pulse scan can reveal the whole city.
 
-  const wp1 = BABYLON.MeshBuilder.CreateSphere('waypoint-alpha', { diameter: 0.9 }, scene);
-  wp1.position.set(0, 1.5, 20);
-  wp1.material = _neonMat('wp1Mat', 0.0, 1.0, 0.53);   // #00ff88 green
-  a11y.register(wp1,     { type: NodeType.WAYPOINT, label: 'Waypoint Alpha', priority: 'normal' });
-  spatial.register(wp1,  { type: NodeType.WAYPOINT, label: 'Waypoint Alpha' });
+  // PBR building helper — dark concrete with neon emissive accent.
+  function _building(id, x, z, w, d, h, er, eg, eb) {
+    const b = BABYLON.MeshBuilder.CreateBox(id, { width: w, height: h, depth: d }, scene);
+    b.position.set(x, h / 2, z);
+    new BABYLON.PhysicsAggregate(b, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
+    const mat = new BABYLON.PBRMaterial(id + 'M', scene);
+    mat.albedoColor  = new BABYLON.Color3(0.04, 0.04, 0.06);
+    mat.emissiveColor = new BABYLON.Color3(er, eg, eb);
+    mat.metallic  = 0.4;
+    mat.roughness = 0.7;
+    b.material = mat;
+    return b;
+  }
 
-  const wp2 = BABYLON.MeshBuilder.CreateSphere('waypoint-beta', { diameter: 0.9 }, scene);
-  wp2.position.set(-14, 1.5, 14);
-  wp2.material = _neonMat('wp2Mat', 0.0, 1.0, 0.53);
-  a11y.register(wp2,     { type: NodeType.WAYPOINT, label: 'Waypoint Beta', priority: 'normal' });
-  spatial.register(wp2,  { type: NodeType.WAYPOINT, label: 'Waypoint Beta' });
+  // NE block
+  _building('bA1',  18, 25, 8, 10, 28, 0.00, 0.06, 0.20);
+  _building('bA2',  28, 40, 6,  8, 42, 0.10, 0.00, 0.22);
+  _building('bA3',  16, 50, 9,  7, 18, 0.00, 0.12, 0.06);
 
-  const barrier = BABYLON.MeshBuilder.CreateBox('obstacle-barrier', { width: 2, height: 2, depth: 0.5 }, scene);
-  barrier.position.set(8, 1, 10);
-  barrier.material = _neonMat('barrierMat', 1.0, 0.27, 0.0);  // #ff4500 orange
-  new BABYLON.PhysicsAggregate(barrier, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
-  a11y.register(barrier,    { type: NodeType.OBSTACLE, label: 'Barrier', priority: 'normal' });
-  spatial.register(barrier, { type: NodeType.OBSTACLE, label: 'Barrier' });
+  // NW block
+  _building('bB1', -20, 25, 8, 10, 32, 0.06, 0.00, 0.18);
+  _building('bB2', -30, 38, 7,  9, 24, 0.00, 0.06, 0.12);
+  _building('bB3', -18, 52, 9,  7, 38, 0.12, 0.02, 0.00);
 
-  const vendor = BABYLON.MeshBuilder.CreateCapsule('npc-vendor', { height: 1.8, radius: 0.35 }, scene);
-  vendor.position.set(5, 0.9, 16);
-  vendor.material = _neonMat('vendorMat', 1.0, 0.0, 1.0);   // #ff00ff magenta
-  a11y.register(vendor,    { type: NodeType.NPC, label: 'Street Vendor', priority: 'normal' });
-  spatial.register(vendor, { type: NodeType.NPC, label: 'Street Vendor' });
+  // SE block
+  _building('bC1',  20, -22, 8, 12, 30, 0.00, 0.10, 0.12);
+  _building('bC2',  30, -38, 6,  8, 22, 0.06, 0.00, 0.14);
+  _building('bC3',  18, -50, 9,  9, 40, 0.00, 0.00, 0.24);
+
+  // SW block
+  _building('bD1', -22, -22, 9, 10, 34, 0.12, 0.00, 0.12);
+  _building('bD2', -30, -36, 7,  8, 26, 0.00, 0.12, 0.12);
+  _building('bD3', -18, -50, 8, 10, 44, 0.06, 0.02, 0.12);
+
+  // Neon street barricade (obstacle) at the north cross-road
+  const barricade = BABYLON.MeshBuilder.CreateBox('barricade', { width: 3, height: 1.2, depth: 0.4 }, scene);
+  barricade.position.set(0, 0.6, 18);
+  new BABYLON.PhysicsAggregate(barricade, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
+  const barMat = new BABYLON.StandardMaterial('barMat', scene);
+  barMat.emissiveColor = new BABYLON.Color3(1.0, 0.4, 0.0);
+  barricade.material = barMat;
+  a11y.register(barricade,    { type: NodeType.OBSTACLE, label: 'Barricade', priority: 'normal' });
+  spatial.register(barricade, { type: NodeType.OBSTACLE, label: 'Barricade' });
+
+  // ── NPCs ──────────────────────────────────────────────────────────────────
+  const npcs = [];
+
+  function _npc(id, x, z, label, dialog) {
+    const mesh = BABYLON.MeshBuilder.CreateCapsule(id, { height: 1.8, radius: 0.35 }, scene);
+    mesh.position.set(x, 0.9, z);
+    const mat = new BABYLON.StandardMaterial(id + 'M', scene);
+    mat.emissiveColor = new BABYLON.Color3(0.9, 0.0, 0.9);
+    mesh.material = mat;
+    a11y.register(mesh,    { type: NodeType.NPC, label, priority: 'normal' });
+    spatial.register(mesh, { type: NodeType.NPC, label });
+    npcs.push({ mesh, label, dialog });
+    return mesh;
+  }
+
+  _npc('npc-vendor',   7, 10,
+    'Street Vendor',
+    'Data chips, stims, and neural upgrades — best prices on the grid. What are you looking for?');
+  _npc('npc-guard',    7, 22,
+    'Security Guard',
+    'Keep moving, citizen. This block is under corporate surveillance. Have a productive day.');
+  _npc('npc-bouncer', -7, 14,
+    'Club Bouncer',
+    'V I P list only tonight. Unless you have a data coin to spare, keep walking.');
+  _npc('npc-courier', -7, 28,
+    'Data Courier',
+    'Can\'t stop — got a delivery. The net never sleeps and neither do I.');
+  _npc('npc-hacker',   2, 38,
+    'Street Hacker',
+    'They took my rig but they can\'t take my mind. I can still see through the corporate feeds — all of it.');
+
+  // Helper: find nearest NPC within reach and play their dialog via speech.
+  function interactWithNearbyNPC() {
+    let nearest = null;
+    let nearestDist = 5; // metres
+    for (const npc of npcs) {
+      const d = BABYLON.Vector3.Distance(playerMesh.position, npc.mesh.position);
+      if (d < nearestDist) { nearestDist = d; nearest = npc; }
+    }
+    if (nearest) {
+      speech.speak(`${nearest.label} says: ${nearest.dialog}`, { interrupt: true });
+      announce(`${nearest.label}: ${nearest.dialog}`);
+    } else {
+      speech.speak('Nobody close enough to talk to. Move toward a beacon and try again.', { interrupt: true });
+    }
+  }
+
+  // ── Vehicles ──────────────────────────────────────────────────────────────
+  // Each car gets a PannerNode for 3-D engine hum.  Positions are updated
+  // every render frame so the sound tracks the moving mesh.
+  const cars = [];
+
+  function _car(id, startX, startZ, axis, speed, pathLen) {
+    const mesh = BABYLON.MeshBuilder.CreateBox(id, { width: 1.8, height: 1.2, depth: 4 }, scene);
+    mesh.position.set(startX, 0.6, startZ);
+    const mat = new BABYLON.StandardMaterial(id + 'M', scene);
+    // Headlights: neon cyan; taillights handled by direction
+    mat.emissiveColor = new BABYLON.Color3(0.0, 0.8, 1.0);
+    mesh.material = mat;
+
+    const panner = audioContext.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.distanceModel = 'inverse';
+    panner.refDistance    = 3;
+    panner.maxDistance    = 80;
+    panner.rolloffFactor  = 1.5;
+    panner.positionX.value = startX;
+    panner.positionY.value = 0.6;
+    panner.positionZ.value = startZ;
+
+    const osc = audioContext.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 60 + Math.random() * 25;
+
+    const lpf = audioContext.createBiquadFilter();
+    lpf.type = 'lowpass';
+    lpf.frequency.value = 350;
+
+    const gn = audioContext.createGain();
+    gn.gain.value = 0.55;
+
+    osc.connect(lpf);
+    lpf.connect(gn);
+    gn.connect(panner);
+    panner.connect(audioContext.destination);
+    osc.start();
+
+    a11y.register(mesh,    { type: NodeType.VEHICLE, label: 'Car', priority: 'normal' });
+    spatial.register(mesh, { type: NodeType.VEHICLE, label: 'Car' });
+
+    // Phase randomised so cars aren't all bunched at the same position on load.
+    cars.push({ mesh, panner, axis, speed, pathLen, startX, startZ,
+                phase: Math.random() * pathLen });
+  }
+
+  // Two lanes on each road axis.
+  _car('car-ns-a',  2.5,  0, 'z',  12, 120);   // northbound
+  _car('car-ns-b', -2.5,  0, 'z', -10, 120);   // southbound
+  _car('car-ew-a',  0,  2.5, 'x',  11, 120);   // eastbound
+  _car('car-ew-b',  0, -2.5, 'x',  -9, 120);   // westbound
+
+  // ── City ambience audio ────────────────────────────────────────────────────
+  // Started after the AudioContext is resumed on first user gesture.
+  // Three layers: city drone (low oscillators), crowd murmur (filtered noise),
+  // distant traffic rumble (very-low noise).
+  function startCityAmbience() {
+    // Layer 1 — city machinery drone: three detuned sawtooth oscillators.
+    const droneOut = audioContext.createGain();
+    droneOut.gain.value = 0.045;
+    droneOut.connect(audioContext.destination);
+    for (const [hz, vol] of [[55, 0.5], [58.2, 0.35], [110, 0.25]]) {
+      const o = audioContext.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = hz;
+      const g = audioContext.createGain();
+      g.gain.value = vol;
+      o.connect(g);
+      g.connect(droneOut);
+      o.start();
+    }
+
+    // Layer 2 — crowd murmur: looping filtered noise.
+    const crowdSr   = audioContext.sampleRate;
+    const crowdBuf  = audioContext.createBuffer(1, crowdSr * 4, crowdSr);
+    const crowdData = crowdBuf.getChannelData(0);
+    for (let i = 0; i < crowdData.length; i++) crowdData[i] = Math.random() * 2 - 1;
+    const crowd = audioContext.createBufferSource();
+    crowd.buffer = crowdBuf;
+    crowd.loop   = true;
+    const crowdBPF = audioContext.createBiquadFilter();
+    crowdBPF.type = 'bandpass';
+    crowdBPF.frequency.value = 1000;
+    crowdBPF.Q.value = 0.35;
+    const crowdGain = audioContext.createGain();
+    crowdGain.gain.value = 0.07;
+    crowd.connect(crowdBPF);
+    crowdBPF.connect(crowdGain);
+    crowdGain.connect(audioContext.destination);
+    crowd.start();
+
+    // Layer 3 — distant traffic rumble: very-low bandpass noise.
+    const rumbleBuf  = audioContext.createBuffer(1, crowdSr * 3, crowdSr);
+    const rumbleData = rumbleBuf.getChannelData(0);
+    for (let i = 0; i < rumbleData.length; i++) rumbleData[i] = Math.random() * 2 - 1;
+    const rumble = audioContext.createBufferSource();
+    rumble.buffer = rumbleBuf;
+    rumble.loop   = true;
+    const rumbleLPF = audioContext.createBiquadFilter();
+    rumbleLPF.type = 'lowpass';
+    rumbleLPF.frequency.value = 120;
+    const rumbleGain = audioContext.createGain();
+    rumbleGain.gain.value = 0.12;
+    rumble.connect(rumbleLPF);
+    rumbleLPF.connect(rumbleGain);
+    rumbleGain.connect(audioContext.destination);
+    rumble.start();
+  }
 
   // ── Asset loader ───────────────────────────────────────────────────────
   // loadMesh wraps SceneLoader.ImportMeshAsync with the already-imported BABYLON,
@@ -359,25 +532,43 @@ async function init() {
     osc.stop(t + 0.25);
   }
 
-  // Track held movement keys to suppress key-repeat re-triggers.
+  // ── Footstep engine ────────────────────────────────────────────────────────
+  // Continuous footsteps while any directional key is held.
+  // Uses recursive setTimeout so the sprint cadence (280 ms) kicks in
+  // automatically on the next tick when Shift is pressed mid-walk.
   const heldMoveKeys = new Set();
-  const MOVE_SOUND_CMDS = new Set([
-    GameCommand.MOVE_FORWARD,
-    GameCommand.MOVE_BACK,
-    GameCommand.STRAFE_LEFT,
-    GameCommand.STRAFE_RIGHT,
-    GameCommand.SPRINT,
+  const MOVE_KEYS = new Set([
+    GameCommand.MOVE_FORWARD, GameCommand.MOVE_BACK,
+    GameCommand.STRAFE_LEFT,  GameCommand.STRAFE_RIGHT,
   ]);
+
+  let _stepsRunning = false;
+  function _stepTick() {
+    if (!_stepsRunning) return;
+    playFootstep();
+    setTimeout(_stepTick, heldMoveKeys.has(GameCommand.SPRINT) ? 280 : 460);
+  }
+  function startFootsteps() { if (!_stepsRunning) { _stepsRunning = true;  _stepTick(); } }
+  function stopFootsteps()  { _stepsRunning = false; }
 
   input.onCommand((cmd, val) => {
     cc.onCommand(cmd, val);
 
-    if (val === 1 && !heldMoveKeys.has(cmd)) {
-      if (cmd === GameCommand.JUMP)            playJump();
-      else if (MOVE_SOUND_CMDS.has(cmd))       playFootstep();
-    }
+    // Track first-press before updating the set (used for one-shot sounds).
+    const firstPress = val === 1 && !heldMoveKeys.has(cmd);
+
     if (val === 1) heldMoveKeys.add(cmd);
     if (val === 0) heldMoveKeys.delete(cmd);
+
+    // Continuous footstep loop — runs while any directional key is held.
+    if ([...MOVE_KEYS].some(c => heldMoveKeys.has(c))) startFootsteps();
+    else stopFootsteps();
+
+    // One-shot jump cue.
+    if (cmd === GameCommand.JUMP && firstPress) playJump();
+
+    // NPC interaction — find nearest NPC within 5 m.
+    if (cmd === GameCommand.INTERACT && firstPress) interactWithNearbyNPC();
 
     if (cmd === GameCommand.LOOK_LEFT)  look.left  = val;
     if (cmd === GameCommand.LOOK_RIGHT) look.right = val;
@@ -480,11 +671,11 @@ async function init() {
   // which satisfies the gesture requirement.  AudioContext is also resumed here
   // in case it was auto-suspended before the first interaction.
   window.addEventListener('keydown', function onFirstKey() {
-    audioContext.resume();
+    audioContext.resume().then(startCityAmbience);
     speech.speak(
       'Welcome to Pulse City. ' +
       'Press Tab to pulse scan and hear what surrounds you. ' +
-      'W A S D to move. Space to jump. F to interact. ' +
+      'W A S D to move. Space to jump. F to interact with people nearby. ' +
       'Screen reader users can now turn off their screen reader. ' +
       'To turn off self-voicing, press Alt V. ' +
       'Press H for the full keyboard guide.',
@@ -505,6 +696,21 @@ async function init() {
     camera.alpha += (look.right - look.left) * LOOK_SPEED * deltaS;
     camera.beta  -= (look.up   - look.down)  * LOOK_SPEED * deltaS;
     camera.beta   = Math.max(0.1, Math.min(Math.PI / 2, camera.beta));
+
+    // Move cars along their road axis and sync their panner positions.
+    for (const car of cars) {
+      car.phase = (car.phase + car.speed * deltaS + car.pathLen) % car.pathLen;
+      const offset = car.phase - car.pathLen / 2;
+      if (car.axis === 'z') {
+        car.mesh.position.z     = car.startZ + offset;
+        car.panner.positionZ.value = car.mesh.position.z;
+        car.panner.positionX.value = car.mesh.position.x;
+      } else {
+        car.mesh.position.x     = car.startX + offset;
+        car.panner.positionX.value = car.mesh.position.x;
+        car.panner.positionZ.value = car.mesh.position.z;
+      }
+    }
 
     scene.render();
   });
