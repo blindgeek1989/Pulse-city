@@ -335,15 +335,19 @@ async function init() {
     lpf.connect(gn);
     gn.connect(panner);
     panner.connect(audioContext.destination);
-    osc.start();
+    // osc NOT started here — deferred to startCityAmbience() so it begins
+    // only after AudioContext is resumed (Chrome blocks audio before gesture).
 
     a11y.register(mesh,    { type: NodeType.VEHICLE, label: 'Car', priority: 'normal' });
     spatial.register(mesh, { type: NodeType.VEHICLE, label: 'Car' });
 
-    // Phase randomised so cars aren't all bunched at the same position on load.
-    cars.push({ mesh, panner, axis, speed, pathLen, startX, startZ,
+    // Phase randomised so cars start spread across their path.
+    cars.push({ mesh, panner, osc, axis, speed, pathLen, startX, startZ,
                 phase: Math.random() * pathLen });
   }
+
+  // Tracks the car the player is currently riding (null = on foot).
+  let enteredCar = null;
 
   // Two lanes on each road axis.
   _car('car-ns-a',  2.5,  0, 'z',  12, 120);   // northbound
@@ -352,15 +356,18 @@ async function init() {
   _car('car-ew-b',  0, -2.5, 'x',  -9, 120);   // westbound
 
   // ── City ambience audio ────────────────────────────────────────────────────
-  // Started after the AudioContext is resumed on first user gesture.
-  // Three layers: city drone (low oscillators), crowd murmur (filtered noise),
-  // distant traffic rumble (very-low noise).
+  // Called from onFirstKey after audioContext.resume() resolves.
+  // Car oscillators are also started here — Chrome silently drops oscillators
+  // that are started while the AudioContext is still suspended.
   function startCityAmbience() {
+    // Car engine hums — start all deferred oscillators now.
+    for (const car of cars) car.osc.start();
+
     // Layer 1 — city machinery drone: three detuned sawtooth oscillators.
     const droneOut = audioContext.createGain();
-    droneOut.gain.value = 0.045;
+    droneOut.gain.value = 0.10;
     droneOut.connect(audioContext.destination);
-    for (const [hz, vol] of [[55, 0.5], [58.2, 0.35], [110, 0.25]]) {
+    for (const [hz, vol] of [[55, 0.5], [58.2, 0.4], [110, 0.3]]) {
       const o = audioContext.createOscillator();
       o.type = 'sawtooth';
       o.frequency.value = hz;
@@ -371,40 +378,40 @@ async function init() {
       o.start();
     }
 
-    // Layer 2 — crowd murmur: looping filtered noise.
-    const crowdSr   = audioContext.sampleRate;
-    const crowdBuf  = audioContext.createBuffer(1, crowdSr * 4, crowdSr);
-    const crowdData = crowdBuf.getChannelData(0);
-    for (let i = 0; i < crowdData.length; i++) crowdData[i] = Math.random() * 2 - 1;
-    const crowd = audioContext.createBufferSource();
-    crowd.buffer = crowdBuf;
-    crowd.loop   = true;
-    const crowdBPF = audioContext.createBiquadFilter();
-    crowdBPF.type = 'bandpass';
-    crowdBPF.frequency.value = 1000;
-    crowdBPF.Q.value = 0.35;
-    const crowdGain = audioContext.createGain();
-    crowdGain.gain.value = 0.07;
-    crowd.connect(crowdBPF);
-    crowdBPF.connect(crowdGain);
-    crowdGain.connect(audioContext.destination);
+    // Layer 2 — crowd murmur: looping bandpass noise.
+    const sr       = audioContext.sampleRate;
+    const crowdBuf = audioContext.createBuffer(1, sr * 4, sr);
+    const crowdD   = crowdBuf.getChannelData(0);
+    for (let i = 0; i < crowdD.length; i++) crowdD[i] = Math.random() * 2 - 1;
+    const crowd    = audioContext.createBufferSource();
+    crowd.buffer   = crowdBuf;
+    crowd.loop     = true;
+    const crowdF   = audioContext.createBiquadFilter();
+    crowdF.type    = 'bandpass';
+    crowdF.frequency.value = 1100;
+    crowdF.Q.value = 0.3;
+    const crowdG   = audioContext.createGain();
+    crowdG.gain.value = 0.18;
+    crowd.connect(crowdF);
+    crowdF.connect(crowdG);
+    crowdG.connect(audioContext.destination);
     crowd.start();
 
-    // Layer 3 — distant traffic rumble: very-low bandpass noise.
-    const rumbleBuf  = audioContext.createBuffer(1, crowdSr * 3, crowdSr);
-    const rumbleData = rumbleBuf.getChannelData(0);
-    for (let i = 0; i < rumbleData.length; i++) rumbleData[i] = Math.random() * 2 - 1;
-    const rumble = audioContext.createBufferSource();
-    rumble.buffer = rumbleBuf;
-    rumble.loop   = true;
-    const rumbleLPF = audioContext.createBiquadFilter();
-    rumbleLPF.type = 'lowpass';
-    rumbleLPF.frequency.value = 120;
-    const rumbleGain = audioContext.createGain();
-    rumbleGain.gain.value = 0.12;
-    rumble.connect(rumbleLPF);
-    rumbleLPF.connect(rumbleGain);
-    rumbleGain.connect(audioContext.destination);
+    // Layer 3 — distant traffic rumble: low-pass noise underbed.
+    const rumbleBuf = audioContext.createBuffer(1, sr * 3, sr);
+    const rumbleD   = rumbleBuf.getChannelData(0);
+    for (let i = 0; i < rumbleD.length; i++) rumbleD[i] = Math.random() * 2 - 1;
+    const rumble    = audioContext.createBufferSource();
+    rumble.buffer   = rumbleBuf;
+    rumble.loop     = true;
+    const rumbleF   = audioContext.createBiquadFilter();
+    rumbleF.type    = 'lowpass';
+    rumbleF.frequency.value = 140;
+    const rumbleG   = audioContext.createGain();
+    rumbleG.gain.value = 0.22;
+    rumble.connect(rumbleF);
+    rumbleF.connect(rumbleG);
+    rumbleG.connect(audioContext.destination);
     rumble.start();
   }
 
@@ -454,8 +461,13 @@ async function init() {
   colorblindPostProcess.onApply = (effect) => {
     effect.setInt('u_mode', cbManager.mode);
   };
-  // Announce mode changes so screen readers and captions both hear it.
+  // Restore colorblind preference saved from a previous session.
+  const _savedCb = parseInt(localStorage.getItem('pulse-city-cb') ?? '0', 10);
+  if (_savedCb) cbManager.setMode(_savedCb);
+
+  // Announce mode changes and persist the choice to localStorage.
   cbManager.onModeChange((mode) => {
+    localStorage.setItem('pulse-city-cb', mode);
     const names = { 0: 'off', 1: 'deuteranopia', 2: 'protanopia', 3: 'tritanopia' };
     announce(`Colorblind correction: ${names[mode]}`, 'polite');
   });
@@ -552,23 +564,50 @@ async function init() {
   function stopFootsteps()  { _stepsRunning = false; }
 
   input.onCommand((cmd, val) => {
-    cc.onCommand(cmd, val);
+    // Movement commands only reach the CharacterController when on foot.
+    if (!enteredCar) cc.onCommand(cmd, val);
 
-    // Track first-press before updating the set (used for one-shot sounds).
     const firstPress = val === 1 && !heldMoveKeys.has(cmd);
-
     if (val === 1) heldMoveKeys.add(cmd);
     if (val === 0) heldMoveKeys.delete(cmd);
 
-    // Continuous footstep loop — runs while any directional key is held.
-    if ([...MOVE_KEYS].some(c => heldMoveKeys.has(c))) startFootsteps();
+    // Footsteps only play while walking — not inside a vehicle.
+    if (!enteredCar && [...MOVE_KEYS].some(c => heldMoveKeys.has(c))) startFootsteps();
     else stopFootsteps();
 
     // One-shot jump cue.
-    if (cmd === GameCommand.JUMP && firstPress) playJump();
+    if (cmd === GameCommand.JUMP && firstPress && !enteredCar) playJump();
 
-    // NPC interaction — find nearest NPC within 5 m.
+    // NPC interaction.
     if (cmd === GameCommand.INTERACT && firstPress) interactWithNearbyNPC();
+
+    // Vehicle entry — E key: find nearest car within 4 m.
+    if (cmd === GameCommand.ENTER_VEHICLE && firstPress && !enteredCar) {
+      let nearest = null;
+      let nearestDist = 4;
+      for (const car of cars) {
+        const d = BABYLON.Vector3.Distance(playerMesh.position, car.mesh.position);
+        if (d < nearestDist) { nearestDist = d; nearest = car; }
+      }
+      if (nearest) {
+        enteredCar = nearest;
+        // Switch player body to kinematic so we can drive its position directly.
+        playerAggregate.body.setMotionType(BABYLON.PhysicsMotionType.ANIMATED);
+        stopFootsteps();
+        speech.speak('Entered vehicle. Riding along. Press Q to exit.', { interrupt: true });
+        announce('Entered vehicle');
+      } else {
+        speech.speak('No vehicle close enough to enter. Pulse scan to find one.', { interrupt: true });
+      }
+    }
+
+    // Vehicle exit — Q key.
+    if (cmd === GameCommand.EXIT_VEHICLE && firstPress && enteredCar) {
+      enteredCar = null;
+      playerAggregate.body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+      speech.speak('Exited vehicle.', { interrupt: true });
+      announce('Exited vehicle');
+    }
 
     if (cmd === GameCommand.LOOK_LEFT)  look.left  = val;
     if (cmd === GameCommand.LOOK_RIGHT) look.right = val;
@@ -702,14 +741,20 @@ async function init() {
       car.phase = (car.phase + car.speed * deltaS + car.pathLen) % car.pathLen;
       const offset = car.phase - car.pathLen / 2;
       if (car.axis === 'z') {
-        car.mesh.position.z     = car.startZ + offset;
+        car.mesh.position.z        = car.startZ + offset;
         car.panner.positionZ.value = car.mesh.position.z;
         car.panner.positionX.value = car.mesh.position.x;
       } else {
-        car.mesh.position.x     = car.startX + offset;
+        car.mesh.position.x        = car.startX + offset;
         car.panner.positionX.value = car.mesh.position.x;
         car.panner.positionZ.value = car.mesh.position.z;
       }
+    }
+
+    // When riding in a vehicle, snap the player (kinematic) to the car each frame.
+    if (enteredCar) {
+      const cp = enteredCar.mesh.position;
+      playerMesh.position.set(cp.x, PLAYER_HEIGHT / 2 + 0.1, cp.z);
     }
 
     scene.render();
