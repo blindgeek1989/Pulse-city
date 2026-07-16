@@ -311,28 +311,86 @@ async function init() {
     mount(PerfHUD, { target: perfTarget, props: { perf } });
   }
 
-  // ── Render loop ────────────────────────────────────────────────────────
-  // ── Alt+V: toggle self-voicing ────────────────────────────────────────
+  // ── Full keyboard guide (spoken by H key, also used at startup) ───────────
+  // Written for speech synthesis: short sentences, spelled-out key names,
+  // pauses implied by full stops so the synth breathes between sections.
+  const KEYBOARD_GUIDE =
+    'Pulse City keyboard guide. ' +
+
+    'Getting started. ' +
+    'When you first load the game, press Tab to fire your Pulse Scan. ' +
+    'You will hear a series of tones — each tone is a nearby object. ' +
+    'Low rumbles are vehicles. High chimes are waypoints. Buzzes are hazards. ' +
+    'Move toward the sounds you want to explore. ' +
+
+    'Movement. ' +
+    'W or Up Arrow — move forward. ' +
+    'S or Down Arrow — move back. ' +
+    'A or Left Arrow — strafe left. ' +
+    'D or Right Arrow — strafe right. ' +
+    'Page Up — look up. ' +
+    'Page Down — look down. ' +
+    'Hold Shift while moving to sprint. ' +
+    'Press Space to jump. ' +
+    'Press B to brake. ' +
+
+    'Exploration. ' +
+    'Tab — fire Pulse Scan. ' +
+    'The scan sends out a wave that highlights and sounds every nearby object. ' +
+    'You can retrigger the scan at any time — there is no cooldown. ' +
+    'Press F to interact with an object when you are close to it. ' +
+    'Press E to enter a vehicle and Q to exit. ' +
+
+    'Accessibility settings. ' +
+    'Press Escape to open the settings panel. ' +
+    'Inside the panel you can change colorblind correction, input mode, and self-voicing. ' +
+    'Tab and Shift Tab move between options. ' +
+    'Escape or the Close button exits the panel. ' +
+
+    'Self-voicing. ' +
+    'Press Alt V to toggle this voice on or off at any time. ' +
+    'If you use a screen reader, turn self-voicing off — all game events ' +
+    'are also announced through ARIA live regions. ' +
+
+    'Press H at any time to hear this guide again.';
+
+  // ── Global keydown handlers ────────────────────────────────────────────────
   window.addEventListener('keydown', (e) => {
+    // Alt+V — toggle self-voicing
     if (e.altKey && e.key.toLowerCase() === 'v') {
       e.preventDefault();
       speech.toggle();
+      return;
+    }
+
+    // H — replay the full keyboard guide
+    if ((e.key === 'h' || e.key === 'H') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      speech.speak(KEYBOARD_GUIDE, { interrupt: true });
+      a11y.announce('Keyboard guide', 'polite');
+      updateCaption('Keyboard guide — listening…');
     }
   });
 
-  // ── Startup narration ──────────────────────────────────────────────────
-  // Slight delay lets the engine finish its first frame before speaking,
-  // so the browser's speech queue is ready and the intro isn't clipped.
+  // ── Startup narration ──────────────────────────────────────────────────────
+  // Brief welcome first so the player is oriented within seconds, followed by
+  // the full guide after a short pause to let the intro land before the list.
   setTimeout(() => {
     speech.speak(
-      'Welcome to Pulse City. Self-voicing is on. ' +
-      'Tab fires your pulse scan. ' +
-      'W A S D or arrow keys to move. ' +
-      'Space to jump. ' +
-      'F to interact. ' +
-      'Press Alt V at any time to toggle this voice on or off.',
+      'Welcome to Pulse City — an accessible cyberpunk adventure. ' +
+      'Self-voicing is on. If you use a screen reader, press Alt V to turn it off. ' +
+      'Press Tab to fire your Pulse Scan and hear what is around you. ' +
+      'W A S D or arrow keys to move. Space to jump. F to interact. ' +
+      'Press Escape for accessibility settings. ' +
+      'Press H at any time to hear the full keyboard guide.',
     );
   }, 800);
+
+  // Full guide plays 14 seconds after startup, giving the brief intro time
+  // to finish and the player a moment to absorb it before the detail arrives.
+  setTimeout(() => {
+    speech.speak(KEYBOARD_GUIDE);
+  }, 14000);
 
   // ── Render loop ────────────────────────────────────────────────────────
   engine.runRenderLoop(() => {
