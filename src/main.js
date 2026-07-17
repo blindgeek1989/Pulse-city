@@ -70,7 +70,7 @@ async function init() {
   // ── Cyberpunk atmosphere ───────────────────────────────────────────────
   // Very dark purple-blue fog — the city air glows faintly from neon scatter.
   scene.fogMode    = BABYLON.Scene.FOGMODE_EXP2;
-  scene.fogDensity = 0.018;
+  scene.fogDensity = 0.006;   // reduced — open world needs longer sightlines
   scene.fogColor   = new BABYLON.Color3(0.005, 0.002, 0.018);
   scene.clearColor = new BABYLON.Color4(0.004, 0.001, 0.012, 1.0);
 
@@ -81,7 +81,7 @@ async function init() {
   sky.groundColor  = new BABYLON.Color3(0.01, 0.002, 0.02);  // near-black ground bounce
 
   // ── Scene geometry ─────────────────────────────────────────────────────
-  const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: 100, height: 100 }, scene);
+  const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: 600, height: 600 }, scene);
   new BABYLON.PhysicsAggregate(ground, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.8 }, scene);
   ground.isPickable = true;
 
@@ -456,63 +456,331 @@ async function init() {
     }
   }
 
-  // ── Vehicles ──────────────────────────────────────────────────────────────
-  // Each car gets a PannerNode for 3-D engine hum.  Positions are updated
-  // every render frame so the sound tracks the moving mesh.
+  // ── Open world district zones ─────────────────────────────────────────────
+  // Each zone uses coloured ground overlays, thematic structures, and NPCs.
+  // The world extends 300+ units in each direction from downtown.
+
+  // Coloured ground patch helper — thin box laid flat.
+  function _zone(id, cx, cz, w, d, r, g, b) {
+    const z = BABYLON.MeshBuilder.CreateBox(id, { width: w, height: 0.05, depth: d }, scene);
+    z.position.set(cx, 0.025, cz);
+    z.isPickable = false;
+    const zm = new BABYLON.StandardMaterial(id + 'M', scene);
+    zm.emissiveColor = new BABYLON.Color3(r, g, b);
+    zm.alpha = 0.35;
+    z.material = zm;
+  }
+
+  // Tree helper — dark-green pine (cone canopy + cylinder trunk).
+  function _tree(id, x, z, h) {
+    const trunk = BABYLON.MeshBuilder.CreateCylinder(id + 't', { height: h * 0.35, diameter: 0.4 }, scene);
+    trunk.position.set(x, h * 0.175, z);
+    const tm = new BABYLON.StandardMaterial(id + 'tM', scene);
+    tm.emissiveColor = new BABYLON.Color3(0.25, 0.12, 0.05);
+    trunk.material = tm;
+    const canopy = BABYLON.MeshBuilder.CreateCylinder(id + 'c',
+      { height: h * 0.8, diameterTop: 0, diameterBottom: h * 0.55 }, scene);
+    canopy.position.set(x, h * 0.35 + h * 0.4, z);
+    const cm = new BABYLON.StandardMaterial(id + 'cM', scene);
+    cm.emissiveColor = new BABYLON.Color3(0.05, 0.28, 0.08);
+    canopy.material = cm;
+  }
+
+  // Mountain peak helper — stacked rough boxes.
+  function _peak(id, cx, cz, baseW, peakH) {
+    for (let i = 0; i < 4; i++) {
+      const frac = 1 - i * 0.22;
+      const s = baseW * frac;
+      const yBot = i * peakH * 0.25;
+      const h = peakH * 0.3;
+      const seg = BABYLON.MeshBuilder.CreateBox(id + '_s' + i,
+        { width: s, height: h, depth: s }, scene);
+      seg.position.set(cx + (Math.random() - 0.5) * 3, yBot + h / 2, cz + (Math.random() - 0.5) * 3);
+      const pm = new BABYLON.StandardMaterial(id + '_sM' + i, scene);
+      pm.emissiveColor = i === 3
+        ? new BABYLON.Color3(0.95, 0.95, 1.0)      // snow cap
+        : new BABYLON.Color3(0.28, 0.25, 0.30);    // dark rock
+      seg.material = pm;
+    }
+  }
+
+  // Suburb house helper.
+  function _house(id, x, z, w, d, roofR, roofG, roofB) {
+    const body = BABYLON.MeshBuilder.CreateBox(id, { width: w, height: 4, depth: d }, scene);
+    body.position.set(x, 2, z);
+    new BABYLON.PhysicsAggregate(body, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
+    const bm = new BABYLON.StandardMaterial(id + 'M', scene);
+    bm.emissiveColor = new BABYLON.Color3(0.06, 0.05, 0.08);
+    body.material = bm;
+    const roof = BABYLON.MeshBuilder.CreateCylinder(id + 'R',
+      { height: 2.5, diameterTop: 0, diameterBottom: w * 1.1, tessellation: 4 }, scene);
+    roof.position.set(x, 5.25, z);
+    const rm = new BABYLON.StandardMaterial(id + 'RM', scene);
+    rm.emissiveColor = new BABYLON.Color3(roofR, roofG, roofB);
+    roof.material = rm;
+  }
+
+  // ── SUBURB ZONE (north, z 70–150) ─────────────────────────────────────────
+  _zone('zSub', 0, 110, 160, 80, 0.04, 0.06, 0.04);   // dim green tint
+  _house('h1',  15, 80,  10, 8,  0.6, 0.2, 0.1);
+  _house('h2', -18, 85,  9, 7,   0.2, 0.5, 0.8);
+  _house('h3',  22, 100, 10, 9,  0.8, 0.4, 0.1);
+  _house('h4', -25, 105, 8,  8,  0.3, 0.7, 0.3);
+  _house('h5',  10, 118, 11, 9,  0.7, 0.2, 0.5);
+  _house('h6', -12, 125, 9,  8,  0.5, 0.5, 0.1);
+  _house('h7',  28, 130, 10, 7,  0.2, 0.6, 0.7);
+  _house('h8', -30, 138, 8,  9,  0.9, 0.3, 0.1);
+
+  // Suburb waypoint beacon so pulse scan picks it up.
+  const subWP = BABYLON.MeshBuilder.CreateSphere('subWP', { diameter: 1 }, scene);
+  subWP.position.set(0, 0.5, 100);
+  const subWPM = new BABYLON.StandardMaterial('subWPM', scene);
+  subWPM.emissiveColor = new BABYLON.Color3(0.4, 0.9, 0.4);
+  subWP.material = subWPM;
+  a11y.register(subWP,    { type: NodeType.WAYPOINT, label: 'Suburbs — residential district', priority: 'normal' });
+  spatial.register(subWP, { type: NodeType.WAYPOINT, label: 'Suburbs' });
+
+  _npc('npc-sub1',  8, 90,  'Suburbanite',
+    'Quiet neighbourhood — nothing like downtown. I like it that way. The kids are safer here.');
+  _npc('npc-sub2', -8, 115, 'Delivery Worker',
+    'Fourth run today. These suburbs go on forever. You need directions somewhere?');
+
+  // ── FOREST ZONE (east, x 80–200, z 50–150) ───────────────────────────────
+  _zone('zFor', 140, 95, 140, 120, 0.02, 0.12, 0.02);  // deep green
+  for (let fi = 0; fi < 28; fi++) {
+    const tx = 85 + Math.random() * 110;
+    const tz = 45 + Math.random() * 105;
+    const th = 6 + Math.random() * 8;
+    _tree('tr' + fi, tx, tz, th);
+  }
+  const forWP = BABYLON.MeshBuilder.CreateSphere('forWP', { diameter: 1 }, scene);
+  forWP.position.set(130, 0.5, 90);
+  const forWPM = new BABYLON.StandardMaterial('forWPM', scene);
+  forWPM.emissiveColor = new BABYLON.Color3(0.1, 0.8, 0.2);
+  forWP.material = forWPM;
+  a11y.register(forWP,    { type: NodeType.WAYPOINT, label: 'Forest — dense woodland', priority: 'normal' });
+  spatial.register(forWP, { type: NodeType.WAYPOINT, label: 'Forest' });
+
+  _npc('npc-for1', 110, 80, 'Forest Ranger',
+    'Few people make it out this far. The trees are old — older than the city. Keep to the path.');
+  _npc('npc-for2', 150, 110, 'Hermit',
+    'Left the grid eight years ago. Best decision of my life. You should try it.');
+
+  // ── MOUNTAIN ZONE (far north, z 160–280) ──────────────────────────────────
+  _zone('zMnt', 0, 215, 200, 120, 0.15, 0.15, 0.18);  // grey rock tint
+  _peak('pk1',   20, 180, 45, 60);
+  _peak('pk2',  -35, 200, 50, 75);
+  _peak('pk3',   50, 225, 38, 55);
+  _peak('pk4',  -10, 250, 55, 80);
+  _peak('pk5',   25, 265, 40, 65);
+
+  const mntWP = BABYLON.MeshBuilder.CreateSphere('mntWP', { diameter: 1 }, scene);
+  mntWP.position.set(0, 0.5, 170);
+  const mntWPM = new BABYLON.StandardMaterial('mntWPM', scene);
+  mntWPM.emissiveColor = new BABYLON.Color3(0.8, 0.9, 1.0);
+  mntWP.material = mntWPM;
+  a11y.register(mntWP,    { type: NodeType.WAYPOINT, label: 'Mountain pass — high altitude', priority: 'normal' });
+  spatial.register(mntWP, { type: NodeType.WAYPOINT, label: 'Mountains' });
+
+  _npc('npc-mnt1',  10, 175, 'Mountain Guide',
+    'Altitude changes things. The air is different. People are different. Corporate signals don\'t reach this high.');
+  _npc('npc-mnt2', -15, 220, 'Climber',
+    'Those peaks ahead? Nobody owns them. No surveillance. No corps. Pure rock. Want to climb with me?');
+
+  // ── FARMLAND ZONE (west, x -80 to -200, z -50 to 100) ────────────────────
+  _zone('zFarm', -145, 30, 130, 160, 0.10, 0.08, 0.02);  // earth brown-yellow
+
+  // Crop rows — long thin boxes suggesting tilled fields.
+  for (let cr = 0; cr < 10; cr++) {
+    const row = BABYLON.MeshBuilder.CreateBox('crop' + cr,
+      { width: 60, height: 0.15, depth: 1.2 }, scene);
+    row.position.set(-140, 0.08, -30 + cr * 10);
+    const crm = new BABYLON.StandardMaterial('cropM' + cr, scene);
+    crm.emissiveColor = new BABYLON.Color3(0.18, 0.22, 0.04);
+    row.material = crm;
+  }
+  // Barn structure.
+  const barnBody = BABYLON.MeshBuilder.CreateBox('barn', { width: 14, height: 7, depth: 22 }, scene);
+  barnBody.position.set(-120, 3.5, 20);
+  new BABYLON.PhysicsAggregate(barnBody, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
+  const barnM = new BABYLON.StandardMaterial('barnM', scene);
+  barnM.emissiveColor = new BABYLON.Color3(0.45, 0.08, 0.05);
+  barnBody.material = barnM;
+  const barnRoof = BABYLON.MeshBuilder.CreateCylinder('barnRoof',
+    { height: 6, diameterTop: 0, diameterBottom: 16, tessellation: 4 }, scene);
+  barnRoof.position.set(-120, 10, 20);
+  const barnRM = new BABYLON.StandardMaterial('barnRM', scene);
+  barnRM.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.1);
+  barnRoof.material = barnRM;
+
+  const farmWP = BABYLON.MeshBuilder.CreateSphere('farmWP', { diameter: 1 }, scene);
+  farmWP.position.set(-110, 0.5, 0);
+  const farmWPM = new BABYLON.StandardMaterial('farmWPM', scene);
+  farmWPM.emissiveColor = new BABYLON.Color3(0.9, 0.8, 0.1);
+  farmWP.material = farmWPM;
+  a11y.register(farmWP,    { type: NodeType.WAYPOINT, label: 'Farmland — rural community', priority: 'normal' });
+  spatial.register(farmWP, { type: NodeType.WAYPOINT, label: 'Farmland' });
+
+  _npc('npc-farm1', -105, 15, 'Farmer',
+    'City folk don\'t come out this way much. We grow real food here — not that printed stuff they sell downtown.');
+  _npc('npc-farm2', -130, -20, 'Farm Hand',
+    'Sun comes up, you work. Sun goes down, you rest. Simple life. Better than the corp grind, I\'ll tell you that.');
+
+  // ── SECOND CITY (far east, x 150–260, z -50 to 80) ───────────────────────
+  _zone('zCity2', 200, 20, 120, 140, 0.02, 0.01, 0.06);  // dark purple city tint
+  const _bldg2 = (id, x, z, w, d, h, er, eg, eb) => {
+    const b = BABYLON.MeshBuilder.CreateBox(id, { width: w, height: h, depth: d }, scene);
+    b.position.set(x, h / 2, z);
+    new BABYLON.PhysicsAggregate(b, BABYLON.PhysicsShapeType.BOX, { mass: 0 }, scene);
+    const m = new BABYLON.PBRMaterial(id + 'M', scene);
+    m.albedoColor = new BABYLON.Color3(0.02, 0.02, 0.04);
+    m.metallic = 0.4; m.roughness = 0.6;
+    m.emissiveColor = new BABYLON.Color3(er, eg, eb);
+    b.material = m;
+    // Roof light
+    const pl = new BABYLON.PointLight(id + 'PL', new BABYLON.Vector3(x, h + 1.5, z), scene);
+    pl.diffuse = new BABYLON.Color3(er, eg, eb);
+    pl.intensity = 45; pl.range = 20;
+  };
+  _bldg2('c2A', 165, 10,  9, 11, 30, 0.0, 0.5, 1.0);
+  _bldg2('c2B', 180, 35,  7,  8, 48, 0.8, 0.0, 0.6);
+  _bldg2('c2C', 200, 10, 10, 12, 36, 0.0, 0.9, 0.5);
+  _bldg2('c2D', 215, 40,  8,  9, 22, 1.0, 0.4, 0.0);
+  _bldg2('c2E', 230, 15,  9, 10, 42, 0.4, 0.0, 1.0);
+  _bldg2('c2F', 160, -20, 8,  8, 28, 0.0, 1.0, 0.7);
+  _bldg2('c2G', 200, -35, 9, 11, 35, 0.7, 0.1, 0.9);
+
+  const city2WP = BABYLON.MeshBuilder.CreateSphere('city2WP', { diameter: 1 }, scene);
+  city2WP.position.set(160, 0.5, 0);
+  const city2WPM = new BABYLON.StandardMaterial('city2WPM', scene);
+  city2WPM.emissiveColor = new BABYLON.Color3(0.5, 0.0, 1.0);
+  city2WP.material = city2WPM;
+  a11y.register(city2WP,    { type: NodeType.WAYPOINT, label: 'Arcadia Heights — secondary city', priority: 'normal' });
+  spatial.register(city2WP, { type: NodeType.WAYPOINT, label: 'Arcadia Heights' });
+
+  _npc('npc-c2a', 170, 5,  'Tech Worker',
+    'Arcadia Heights runs on clean energy. No neon, no noise — just pure data flow. Different vibe to downtown.');
+  _npc('npc-c2b', 195, -15, 'Street Artist',
+    'They tried to make this place sterile. We put the art back. See that mural on block seven? That\'s ours.');
+
+  // ── Extended road lane markings for outer districts ────────────────────────
+  // The inner road markings cover ±45. These extend the N-S and E-W roads further.
+  for (const off of [-70, -55, 55, 70, 85, 100, 115, 130, 145, 160]) {
+    const dZ = BABYLON.MeshBuilder.CreateBox('elZ' + off,
+      { width: 0.12, height: 0.01, depth: 2.4 }, scene);
+    dZ.position.set(0, 0.01, off);
+    const mZ = new BABYLON.StandardMaterial('elZm' + off, scene);
+    mZ.emissiveColor = new BABYLON.Color3(0.7, 0.5, 0.0);
+    dZ.material = mZ;
+
+    const dX = BABYLON.MeshBuilder.CreateBox('elX' + off,
+      { width: 2.4, height: 0.01, depth: 0.12 }, scene);
+    dX.position.set(off, 0.01, 0);
+    const mX = new BABYLON.StandardMaterial('elXm' + off, scene);
+    mX.emissiveColor = new BABYLON.Color3(0.7, 0.5, 0.0);
+    dX.material = mX;
+  }
+
+  // ── Vehicles — waypoint-routed open world cars ───────────────────────────
+  // Cars follow ordered Vector3 waypoint arrays.  They navigate city streets,
+  // cross into suburbs, and loop through districts.  Each car has a named
+  // driver the player can talk to while riding.
   const cars = [];
 
-  function _car(id, startX, startZ, axis, speed, pathLen) {
+  // Shorthand: road-level waypoint
+  const _wp = (x, z) => new BABYLON.Vector3(x, 0, z);
+
+  // Named intersection nodes for district routing.
+  // Roads run along x=0 (N-S) and z=0 (E-W) and outer ring at ±80.
+  const NODE = {
+    DOWNTOWN:    _wp(  0,    0),
+    N_INNER:     _wp(  0,   40),
+    N_OUTER:     _wp(  0,   90),
+    S_INNER:     _wp(  0,  -40),
+    S_OUTER:     _wp(  0,  -90),
+    E_INNER:     _wp( 40,    0),
+    E_OUTER:     _wp( 90,    0),
+    W_INNER:     _wp(-40,    0),
+    W_OUTER:     _wp(-90,    0),
+    NE_CROSS:    _wp( 80,   80),
+    NW_CROSS:    _wp(-80,   80),
+    SE_CROSS:    _wp( 80,  -80),
+    SW_CROSS:    _wp(-80,  -80),
+    MOUNTAIN_RD: _wp(  0,  160),
+    FARM_RD:     _wp(-160,   0),
+    FOREST_RD:   _wp( 160,   0),
+  };
+
+  function _car(id, route, speed, driverName, greeting, chatLine, er, eg, eb) {
     const mesh = BABYLON.MeshBuilder.CreateBox(id, { width: 1.8, height: 1.2, depth: 4 }, scene);
-    mesh.position.set(startX, 0.6, startZ);
+    const startPt = route[0];
+    mesh.position.set(startPt.x, 0.6, startPt.z);
     const mat = new BABYLON.StandardMaterial(id + 'M', scene);
-    // Headlights: neon cyan; taillights handled by direction
-    mat.emissiveColor = new BABYLON.Color3(0.0, 0.8, 1.0);
+    mat.emissiveColor = new BABYLON.Color3(er, eg, eb);
     mesh.material = mat;
 
     const panner = audioContext.createPanner();
-    panner.panningModel = 'HRTF';
+    panner.panningModel  = 'HRTF';
     panner.distanceModel = 'inverse';
-    panner.refDistance    = 3;
-    panner.maxDistance    = 80;
-    panner.rolloffFactor  = 1.5;
-    panner.positionX.value = startX;
+    panner.refDistance   = 3;
+    panner.maxDistance   = 120;
+    panner.rolloffFactor = 1.5;
+    panner.positionX.value = startPt.x;
     panner.positionY.value = 0.6;
-    panner.positionZ.value = startZ;
+    panner.positionZ.value = startPt.z;
 
     const osc = audioContext.createOscillator();
     osc.type = 'sawtooth';
-    osc.frequency.value = 60 + Math.random() * 25;
-
+    osc.frequency.value = 55 + Math.random() * 30;
     const lpf = audioContext.createBiquadFilter();
     lpf.type = 'lowpass';
-    lpf.frequency.value = 350;
-
+    lpf.frequency.value = 300;
     const gn = audioContext.createGain();
-    gn.gain.value = 0.55;
-
-    osc.connect(lpf);
-    lpf.connect(gn);
-    gn.connect(panner);
+    gn.gain.value = 0.45;
+    osc.connect(lpf); lpf.connect(gn); gn.connect(panner);
     panner.connect(audioContext.destination);
-    // osc NOT started here — deferred to startCityAmbience() so it begins
-    // only after AudioContext is resumed (Chrome blocks audio before gesture).
+    // osc NOT started here — deferred to startCityAmbience().
 
-    a11y.register(mesh,    { type: NodeType.VEHICLE, label: 'Car', priority: 'normal' });
-    spatial.register(mesh, { type: NodeType.VEHICLE, label: 'Car' });
+    const label = driverName + '\'s vehicle';
+    a11y.register(mesh,    { type: NodeType.VEHICLE, label, priority: 'normal' });
+    spatial.register(mesh, { type: NodeType.VEHICLE, label });
 
-    // Phase randomised so cars start spread across their path.
-    cars.push({ mesh, panner, osc, axis, speed, pathLen, startX, startZ,
-                phase: Math.random() * pathLen });
+    // Stagger start position along the route so cars spread out naturally.
+    const startOffset = Math.floor(Math.random() * route.length);
+    cars.push({ mesh, panner, osc, route, wpIdx: startOffset, speed,
+                driverName, greeting, chatLine });
   }
 
   // Tracks the car the player is currently riding (null = on foot).
   let enteredCar = null;
 
-  // Two lanes on each road axis.
-  _car('car-ns-a',  2.5,  0, 'z',  12, 120);   // northbound
-  _car('car-ns-b', -2.5,  0, 'z', -10, 120);   // southbound
-  _car('car-ew-a',  0,  2.5, 'x',  11, 120);   // eastbound
-  _car('car-ew-b',  0, -2.5, 'x',  -9, 120);   // westbound
+  // City Taxi — loops downtown through Neon District and back.
+  _car('taxi-1',
+    [NODE.DOWNTOWN, NODE.N_INNER, NODE.NW_CROSS, NODE.W_OUTER, NODE.W_INNER, NODE.DOWNTOWN],
+    14, 'City Taxi', 'Hop in. I\'m looping through Neon District — you\'ll see the whole west side.',
+    'We\'re passing through the neon market now. Wild night out there.',
+    0.0, 0.9, 1.0);
+
+  // Rideshare — east loop through Tech Quarter.
+  _car('rideshare-1',
+    [NODE.DOWNTOWN, NODE.E_INNER, NODE.NE_CROSS, NODE.N_OUTER, NODE.N_INNER, NODE.DOWNTOWN],
+    12, 'Rideshare Driver', 'Tech Quarter run. Hop on — clean ride, no questions.',
+    'Those towers on the right? Corporate servers. More data in there than the whole old internet.',
+    0.8, 0.3, 1.0);
+
+  // Industrial hauler — south circuit.
+  _car('hauler-1',
+    [NODE.DOWNTOWN, NODE.S_INNER, NODE.SW_CROSS, NODE.S_OUTER, NODE.SE_CROSS, NODE.E_INNER, NODE.DOWNTOWN],
+    10, 'Cargo Hauler', 'Industrial zone run. I\'ve got a delivery, but you can ride along.',
+    'This whole southern district used to be docks before they built the maglev overpass.',
+    0.9, 0.5, 0.1);
+
+  // Mountain express — long run north to the mountain road.
+  _car('mountain-bus',
+    [NODE.DOWNTOWN, NODE.N_INNER, NODE.N_OUTER, NODE.MOUNTAIN_RD, NODE.N_OUTER, NODE.N_INNER, NODE.DOWNTOWN],
+    9, 'Mountain Bus Driver', 'Mountain express. Long ride — grab a seat. We go all the way to the ridge.',
+    'Up ahead you\'ll start to feel the air change. Cleaner up there. Less corp surveillance too.',
+    0.3, 0.7, 0.4);
 
   // ── City ambience audio ────────────────────────────────────────────────────
   // Called from onFirstKey after audioContext.resume() resolves.
@@ -522,10 +790,14 @@ async function init() {
     // Car engine hums — start all deferred oscillators now.
     for (const car of cars) car.osc.start();
 
-    // Layer 1 — city machinery drone: three detuned sawtooth oscillators.
+    // Layer 1 — city machinery drone: detuned sawtooth oscillators, soft lowpass to remove buzz.
     const droneOut = audioContext.createGain();
-    droneOut.gain.value = 0.10;
-    droneOut.connect(audioContext.destination);
+    droneOut.gain.value = 0.06;
+    const droneLpf = audioContext.createBiquadFilter();
+    droneLpf.type = 'lowpass';
+    droneLpf.frequency.value = 180;  // cut high harmonics that cause harshness
+    droneLpf.connect(audioContext.destination);
+    droneOut.connect(droneLpf);
     for (const [hz, vol] of [[55, 0.5], [58.2, 0.4], [110, 0.3]]) {
       const o = audioContext.createOscillator();
       o.type = 'sawtooth';
@@ -537,7 +809,8 @@ async function init() {
       o.start();
     }
 
-    // Layer 2 — crowd murmur: looping bandpass noise.
+    // Layer 2 — crowd murmur: narrow bandpass keeps it a low hum, not a hiss.
+    // Q=4.0 (narrow) + low gain = defined murmur rather than broadband noise.
     const sr       = audioContext.sampleRate;
     const crowdBuf = audioContext.createBuffer(1, sr * 4, sr);
     const crowdD   = crowdBuf.getChannelData(0);
@@ -547,16 +820,16 @@ async function init() {
     crowd.loop     = true;
     const crowdF   = audioContext.createBiquadFilter();
     crowdF.type    = 'bandpass';
-    crowdF.frequency.value = 1100;
-    crowdF.Q.value = 0.3;
+    crowdF.frequency.value = 400;   // lower centre = voice-murmur range
+    crowdF.Q.value = 4.0;           // narrow band — kills the hiss
     const crowdG   = audioContext.createGain();
-    crowdG.gain.value = 0.18;
+    crowdG.gain.value = 0.04;       // was 0.18 — quiet background presence
     crowd.connect(crowdF);
     crowdF.connect(crowdG);
     crowdG.connect(audioContext.destination);
     crowd.start();
 
-    // Layer 3 — distant traffic rumble: low-pass noise underbed.
+    // Layer 3 — distant traffic rumble: very low pass, very quiet.
     const rumbleBuf = audioContext.createBuffer(1, sr * 3, sr);
     const rumbleD   = rumbleBuf.getChannelData(0);
     for (let i = 0; i < rumbleD.length; i++) rumbleD[i] = Math.random() * 2 - 1;
@@ -565,9 +838,9 @@ async function init() {
     rumble.loop     = true;
     const rumbleF   = audioContext.createBiquadFilter();
     rumbleF.type    = 'lowpass';
-    rumbleF.frequency.value = 140;
+    rumbleF.frequency.value = 90;   // only sub-bass rumble passes
     const rumbleG   = audioContext.createGain();
-    rumbleG.gain.value = 0.22;
+    rumbleG.gain.value = 0.06;      // was 0.22 — felt below the engine hum
     rumble.connect(rumbleF);
     rumbleF.connect(rumbleG);
     rumbleG.connect(audioContext.destination);
@@ -737,34 +1010,42 @@ async function init() {
     // One-shot jump cue.
     if (cmd === GameCommand.JUMP && firstPress && !enteredCar) playJump();
 
-    // NPC interaction.
-    if (cmd === GameCommand.INTERACT && firstPress) interactWithNearbyNPC();
+    // NPC interaction — only when on foot (driver chat handled below when in vehicle).
+    if (cmd === GameCommand.INTERACT && firstPress && !enteredCar) interactWithNearbyNPC();
 
-    // Vehicle entry — E key: find nearest car within 4 m.
+    // Vehicle entry — E key: find nearest car within 5 m.
     if (cmd === GameCommand.ENTER_VEHICLE && firstPress && !enteredCar) {
       let nearest = null;
-      let nearestDist = 4;
+      let nearestDist = 5;
       for (const car of cars) {
         const d = BABYLON.Vector3.Distance(playerMesh.position, car.mesh.position);
         if (d < nearestDist) { nearestDist = d; nearest = car; }
       }
       if (nearest) {
         enteredCar = nearest;
-        // Switch player body to kinematic so we can drive its position directly.
         playerAggregate.body.setMotionType(BABYLON.PhysicsMotionType.ANIMATED);
         stopFootsteps();
-        speech.speak('Entered vehicle. Riding along. Press Q to exit.', { interrupt: true });
-        announce('Entered vehicle');
+        const msg = `${nearest.driverName} says: ${nearest.greeting} Press Q to exit, F to talk.`;
+        speech.speak(msg, { interrupt: true });
+        announce(`Entered ${nearest.driverName}'s vehicle`);
       } else {
         speech.speak('No vehicle close enough to enter. Pulse scan to find one.', { interrupt: true });
       }
     }
 
+    // Talk to driver — F key while riding.
+    if (cmd === GameCommand.INTERACT && firstPress && enteredCar) {
+      speech.speak(`${enteredCar.driverName} says: ${enteredCar.chatLine}`, { interrupt: true });
+      announce(`${enteredCar.driverName}: ${enteredCar.chatLine}`);
+      return; // skip NPC interaction when in a vehicle
+    }
+
     // Vehicle exit — Q key.
     if (cmd === GameCommand.EXIT_VEHICLE && firstPress && enteredCar) {
+      const exitMsg = `${enteredCar.driverName} says: Safe travels. Press E near a vehicle to hop back in.`;
       enteredCar = null;
       playerAggregate.body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
-      speech.speak('Exited vehicle.', { interrupt: true });
+      speech.speak(exitMsg, { interrupt: true });
       announce('Exited vehicle');
     }
 
@@ -895,19 +1176,23 @@ async function init() {
     camera.beta  -= (look.up   - look.down)  * LOOK_SPEED * deltaS;
     camera.beta   = Math.max(0.1, Math.min(Math.PI / 2, camera.beta));
 
-    // Move cars along their road axis and sync their panner positions.
+    // Move cars along their waypoint routes and sync panner positions.
     for (const car of cars) {
-      car.phase = (car.phase + car.speed * deltaS + car.pathLen) % car.pathLen;
-      const offset = car.phase - car.pathLen / 2;
-      if (car.axis === 'z') {
-        car.mesh.position.z        = car.startZ + offset;
-        car.panner.positionZ.value = car.mesh.position.z;
-        car.panner.positionX.value = car.mesh.position.x;
+      const target = car.route[car.wpIdx];
+      const dx = target.x - car.mesh.position.x;
+      const dz = target.z - car.mesh.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < 2.0) {
+        car.wpIdx = (car.wpIdx + 1) % car.route.length;
       } else {
-        car.mesh.position.x        = car.startX + offset;
-        car.panner.positionX.value = car.mesh.position.x;
-        car.panner.positionZ.value = car.mesh.position.z;
+        const step = car.speed * deltaS;
+        car.mesh.position.x += (dx / dist) * step;
+        car.mesh.position.z += (dz / dist) * step;
+        car.mesh.rotation.y  = Math.atan2(dx, dz);
       }
+      car.panner.positionX.value = car.mesh.position.x;
+      car.panner.positionY.value = 0.6;
+      car.panner.positionZ.value = car.mesh.position.z;
     }
 
     // When riding in a vehicle, snap the player (kinematic) to the car each frame.
